@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Abyssal Lullaby</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Georgia',serif}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+#startScreen,#gameOverScreen{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:all;transition:opacity 1.5s ease}
+#startScreen{background:radial-gradient(ellipse at 50% 60%,#0a1628 0%,#020810 100%)}
+#gameOverScreen{background:rgba(2,8,16,0.95);opacity:0;pointer-events:none}
+.title{font-size:clamp(2rem,6vw,4.5rem);color:#7ec8e3;text-shadow:0 0 40px rgba(126,200,227,0.5),0 0 80px rgba(126,200,227,0.2);letter-spacing:0.15em;margin-bottom:0.3em;font-weight:normal}
+.subtitle{font-size:clamp(0.8rem,2vw,1.2rem);color:rgba(180,210,230,0.6);letter-spacing:0.3em;margin-bottom:2em;text-transform:uppercase}
+.btn{background:none;border:1px solid rgba(126,200,227,0.3);color:#7ec8e3;padding:0.8em 2.5em;font-size:clamp(0.9rem,2vw,1.1rem);font-family:'Georgia',serif;letter-spacing:0.2em;cursor:pointer;transition:all 0.4s ease;border-radius:50px;pointer-events:all;text-transform:uppercase}
+.btn:hover{background:rgba(126,200,227,0.1);border-color:rgba(126,200,227,0.6);box-shadow:0 0 30px rgba(126,200,227,0.2)}
+.instructions{color:rgba(180,210,230,0.4);font-size:clamp(0.7rem,1.5vw,0.85rem);margin-top:1.5em;letter-spacing:0.1em;text-align:center;line-height:1.8}
+#hud{position:absolute;top:20px;left:0;width:100%;display:flex;justify-content:center;gap:40px;opacity:0;transition:opacity 1s ease}
+.hud-item{color:rgba(180,210,230,0.5);font-size:0.8rem;letter-spacing:0.15em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.hud-bar{width:80px;height:3px;background:rgba(126,200,227,0.1);border-radius:2px;overflow:hidden}
+.hud-fill{height:100%;border-radius:2px;transition:width 0.3s ease}
+#depthIndicator{position:absolute;right:20px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;opacity:0;transition:opacity 1s ease}
+.depth-dot{width:6px;height:6px;border-radius:50%;background:rgba(126,200,227,0.15);transition:all 0.5s ease}
+.depth-dot.active{background:rgba(126,200,227,0.8);box-shadow:0 0 10px rgba(126,200,227,0.4)}
+.score-display{font-size:clamp(1.5rem,4vw,3rem);color:#7ec8e3;margin-bottom:0.5em;text-shadow:0 0 30px rgba(126,200,227,0.4)}
+.score-label{color:rgba(180,210,230,0.4);font-size:0.85rem;letter-spacing:0.3em;margin-bottom:2em;text-transform:uppercase}
+.go-subtitle{color:rgba(180,210,230,0.5);font-size:clamp(0.9rem,2vw,1.1rem);margin-bottom:0.5em;letter-spacing:0.1em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+<div id="startScreen">
+<div class="title">Abyssal Lullaby</div>
+<div class="subtitle">A meditation in the deep</div>
+<button class="btn" id="startBtn">Descend</button>
+<div class="instructions">Move to guide the whale · Hold to weave spirals<br>Gather light · Restore balance</div>
+</div>
+<div id="gameOverScreen">
+<div class="title" style="font-size:clamp(1.5rem,4vw,2.5rem)">The Cycle Completes</div>
+<div class="go-subtitle" id="goMessage">You became one with the infinite blue</div>
+<div class="score-display" id="finalScore">0</div>
+<div class="score-label">Light Gathered</div>
+<button class="btn" id="restartBtn">Resurface</button>
+</div>
+<div id="hud">
+<div class="hud-item">
+<span>Energy</span>
+<div class="hud-bar"><div class="hud-fill" id="energyBar" style="width:100%;background:linear-gradient(90deg,#4a9ead,#7ec8e3)"></div></div>
+</div>
+<div class="hud-item">
+<span>Harmony</span>
+<div class="hud-bar"><div class="hud-fill" id="harmonyBar" style="width:100%;background:linear-gradient(90deg,#8b5cf6,#c084fc)"></div></div>
+</div>
+<div class="hud-item">
+<span id="depthLabel">Surface</span>
+</div>
+</div>
+<div id="depthIndicator">
+<div class="depth-dot active" data-layer="0"></div>
+<div class="depth-dot" data-layer="1"></div>
+<div class="depth-dot" data-layer="2"></div>
+<div class="depth-dot" data-layer="3"></div>
+</div>
+</div>
+<script>
+// ═══════════════════════════════════════════
+// ABYSSAL LULLABY - A Cosmic Whale Experience
+// ═══════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Game State ──
+const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2, TRANSITION: 3 };
+let gameState = STATE.MENU;
+let score = 0;
+let energy = 100;
+let harmony = 100;
+let depth = 0; // 0-1 continuous depth
+let currentLayer = 0;
+let gameTime = 0;
+let deltaTime = 0;
+let lastTime = 0;
+let fadeAlpha = 0;
+let shakeX = 0, shakeY = 0;
+let shakeIntensity = 0;
+
+// ── Layer Definitions ──
+const LAYERS = [
+  { name: 'Surface', skyTop: '#0a1628', skyBot: '#1a3a5c', waterTop: '#0d2847', waterBot: '#061a33', accent: '#f4d03f', particleColor: 'rgba(244,208,63,', lightRays: true, fishDensity: 1.0 },
+  { name: 'Twilight', skyTop: '#060e1f', skyBot: '#0a1e3d', waterTop: '#071833', waterBot: '#040d1f', accent: '#7ec8e3', particleColor: 'rgba(126,200,227,', lightRays: false, fishDensity: 1.3 },
+  { name: 'Abyss', skyTop: '#020510', skyBot: '#050a18', waterTop: '#030812', waterBot: '#01040a', accent: '#8b5cf6', particleColor: 'rgba(139,92,246,', lightRays: false, fishDensity: 0.8 },
+  { name: 'Spirit Realm', skyTop: '#05000d', skyBot: '#0d0520', waterTop: '#08031a', waterBot: '#030010', accent: '#f0abfc', particleColor: 'rgba(240,171,252,', lightRays: false, fishDensity: 0.6 }
+];
+
+// ── Utilities ──
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpColor(c1, c2, t) {
+  const r1 = parseInt(c1.slice(1,3),16), g1 = parseInt(c1.slice(3,5),16), b1 = parseInt(c1.slice(5,7),16);
+  const r2 = parseInt(c2.slice(1,3),16), g2 = parseInt(c2.slice(3,5),16), b2 = parseInt(c2.slice(5,7),16);
+  const r = Math.round(lerp(r1,r2,t)), g = Math.round(lerp(g1,g2,t)), b = Math.round(lerp(b1,b2,t));
+  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOutSine(t) { return -(Math.cos(Math.PI * t) - 1) / 2; }
+function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+
+// ── Input Handling ──
+let mouseX = W / 2, mouseY = H / 2;
+let isHolding = false;
+let holdTime = 0;
+let inputActive = false;
+
+function getPos(e) {
+  if (e.touches) { mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY; }
+  else { mouseX = e.clientX; mouseY = e.clientY; }
+  inputActive = true;
+}
+
+canvas.addEventListener('mousemove', getPos);
+canvas.addEventListener('touchmove', e => { e.preventDefault(); getPos(e); }, { passive: false });
+canvas.addEventListener('mousedown', e => { getPos(e); isHolding = true; holdTime = 0; });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); getPos(e); isHolding = true; holdTime = 0; }, { passive: false });
+canvas.addEventListener('mouseup', () => { isHolding = false; });
+canvas.addEventListener('touchend', () => { isHolding = false; });
+canvas.addEventListener('mouseleave', () => { isHolding = false; });
+
+
+// ═══════════════════════════════════════════
+// AUDIO SYSTEM — Whale Songs & Ambient Ocean
+// ═══════════════════════════════════════════
+let audioCtx = null;
+let masterGain = null;
+let ambientOsc = null;
+let ambientGain = null;
+
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.3;
+  masterGain.connect(audioCtx.destination);
+
+  // Deep ambient drone
+  ambientGain = audioCtx.createGain();
+  ambientGain.gain.value = 0;
+  ambientGain.connect(masterGain);
+
+  const drone1 = audioCtx.createOscillator();
+  drone1.type = 'sine';
+  drone1.frequency.value = 55;
+  drone1.connect(ambientGain);
+  drone1.start();
+
+  const drone2 = audioCtx.createOscillator();
+  drone2.type = 'sine';
+  drone2.frequency.value = 82.5;
+  const d2g = audioCtx.createGain();
+  d2g.gain.value = 0.3;
+  drone2.connect(d2g);
+  d2g.connect(ambientGain);
+  drone2.start();
+
+  // Fade in ambient
+  ambientGain.gain.setTargetAtTime(0.15, audioCtx.currentTime, 2);
+}
+
+function playTone(freq, duration, vol, type) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  g.gain.value = 0;
+  g.gain.setTargetAtTime(vol || 0.08, audioCtx.currentTime, 0.05);
+  g.gain.setTargetAtTime(0, audioCtx.currentTime + duration * 0.6, duration * 0.3);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration + 0.5);
+}
+
+function playBubbleSound() {
+  if (!audioCtx) return;
+  const freq = rand(800, 1400);
+  playTone(freq, 0.15, 0.04, 'sine');
+  setTimeout(() => playTone(freq * 1.5, 0.1, 0.02, 'sine'), 50);
+}
+
+function playAbsorbSound() {
+  if (!audioCtx) return;
+  const base = rand(300, 500);
+  playTone(base, 0.4, 0.06, 'sine');
+  playTone(base * 1.5, 0.3, 0.04, 'sine');
+  playTone(base * 2, 0.2, 0.03, 'triangle');
+}
+
+function playWhaleSong() {
+  if (!audioCtx) return;
+  const base = 80 + currentLayer * 15;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(base, t);
+  osc.frequency.linearRampToValueAtTime(base * 1.3, t + 0.8);
+  osc.frequency.linearRampToValueAtTime(base * 0.9, t + 2);
+  osc.frequency.linearRampToValueAtTime(base * 1.1, t + 3);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.07, t + 0.3);
+  g.gain.setTargetAtTime(0, t + 2, 0.8);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start(t);
+  osc.stop(t + 4);
+}
+
+let lastSongTime = 0;
+
+// ═══════════════════════════════════════════
+// WHALE — The Spirit of the Ocean
+// ═══════════════════════════════════════════
+const whale = {
+  x: 0, y: 0,
+  targetX: 0, targetY: 0,
+  vx: 0, vy: 0,
+  angle: 0,
+  targetAngle: 0,
+  size: 40,
+  tailPhase: 0,
+  glowIntensity: 0.5,
+  celestialLevel: 0, // 0 to 1, increases over time
+  trail: [],
+  ribbons: [],
+  breathPhase: 0,
+  songCooldown: 0
+};
+
+function initWhale() {
+  whale.x = W / 2;
+  whale.y = H / 2;
+  whale.targetX = W / 2;
+  whale.targetY = H / 2;
+  whale.vx = 0;
+  whale.vy = 0;
+  whale.trail = [];
+  whale.ribbons = [];
+  whale.celestialLevel = 0;
+  whale.glowIntensity = 0.5;
+}
+
+function updateWhale(dt) {
+  // Smooth follow cursor — weightless, underwater feel
+  whale.targetX = mouseX;
+  whale.targetY = mouseY;
+
+  const dx = whale.targetX - whale.x;
+  const dy = whale.targetY - whale.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+
+  // Very smooth easing — slow, floating movement
+  const speed = 0.02 + (d > 200 ? 0.02 : 0);
+  whale.vx += (dx * speed - whale.vx * 0.95) * dt * 60;
+  whale.vy += (dy * speed - whale.vy * 0.95) * dt * 60;
+  whale.x += whale.vx;
+  whale.y += whale.vy;
+
+  // Angle faces direction of movement
+  if (Math.abs(whale.vx) > 0.2 || Math.abs(whale.vy) > 0.2) {
+    whale.targetAngle = Math.atan2(whale.vy, whale.vx);
+  }
+  // Smooth angle interpolation
+  let angleDiff = whale.targetAngle - whale.angle;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  whale.angle += angleDiff * 0.03;
+
+  // Tail animation
+  whale.tailPhase += dt * 2.5;
+
+  // Breathing animation
+  whale.breathPhase += dt * 0.8;
+
+  // Celestial transformation over time
+  whale.celestialLevel = Math.min(1, score / 500);
+
+  // Glow pulses
+  whale.glowIntensity = 0.5 + Math.sin(gameTime * 1.5) * 0.15 + whale.celestialLevel * 0.3;
+
+  // Trail
+  if (gameTime % 2 < dt * 60) {
+    whale.trail.push({ x: whale.x, y: whale.y, alpha: 1, size: whale.size * 0.6 });
+  }
+  whale.trail = whale.trail.filter(t => {
+    t.alpha -= dt * 0.8;
+    t.size *= 0.995;
+    return t.alpha > 0;
+  });
+
+  // Silk ribbons behind whale
+  if (Math.random() < dt * 15) {
+    const offAngle = whale.angle + Math.PI + rand(-0.5, 0.5);
+    whale.ribbons.push({
+      x: whale.x - Math.cos(whale.angle) * whale.size * 0.8,
+      y: whale.y - Math.sin(whale.angle) * whale.size * 0.8,
+      vx: Math.cos(offAngle) * rand(0.3, 0.8),
+      vy: Math.sin(offAngle) * rand(0.3, 0.8),
+      alpha: 0.6,
+      size: rand(2, 5)
+    });
+  }
+  whale.ribbons = whale.ribbons.filter(r => {
+    r.x += r.vx;
+    r.y += r.vy;
+    r.alpha -= dt * 0.6;
+    r.vx *= 0.98;
+    r.vy *= 0.98;
+    return r.alpha > 0;
+  });
+
+  // Whale song
+  whale.songCooldown -= dt;
+  if (whale.songCooldown <= 0 && Math.random() < dt * 0.05) {
+    playWhaleSong();
+    whale.songCooldown = rand(8, 15);
+  }
+
+  // Energy drains slowly
+  energy -= dt * 1.5;
+  if (energy <= 0) {
+    energy = 0;
+    endGame();
+  }
+
+  // Depth progression — slowly descend over time
+  depth = Math.min(1, depth + dt * 0.005);
+  currentLayer = Math.min(3, Math.floor(depth * 4));
+}
+
+function drawWhale() {
+  ctx.save();
+  ctx.translate(whale.x, whale.y);
+  ctx.rotate(whale.angle);
+
+  const s = whale.size * (1 + Math.sin(whale.breathPhase) * 0.03);
+  const layer = LAYERS[currentLayer];
+  const celestial = whale.celestialLevel;
+
+  // Glow aura
+  const glowSize = s * (2 + celestial * 1.5);
+  const gradient = ctx.createRadialGradient(0, 0, s * 0.3, 0, 0, glowSize);
+  const accent = layer.accent;
+  gradient.addColorStop(0, accent + '22');
+  gradient.addColorStop(0.5, accent + '08');
+  gradient.addColorStop(1, 'transparent');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(0, 0, glowSize, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Silk ribbon trail
+  whale.ribbons.forEach(r => {
+    const rx = r.x - whale.x;
+    const ry = r.y - whale.y;
+    const cos = Math.cos(-whale.angle);
+    const sin = Math.sin(-whale.angle);
+    const lx = rx * cos - ry * sin;
+    const ly = rx * sin + ry * cos;
+    ctx.beginPath();
+    ctx.arc(lx, ly, r.size, 0, Math.PI * 2);
+    ctx.fillStyle = layer.particleColor + (r.alpha * 0.4) + ')';
+    ctx.fill();
+  });
+
+  // Body — elegant whale shape
+  ctx.beginPath();
+  // Main body ellipse
+  const tailWag = Math.sin(whale.tailPhase) * 0.15;
+
+  // Streamlined body
+  ctx.moveTo(s * 0.9, 0);
+  ctx.bezierCurveTo(s * 0.8, -s * 0.35, s * 0.2, -s * 0.45, -s * 0.3, -s * 0.25);
+  ctx.bezierCurveTo(-s * 0.6, -s * 0.15, -s * 0.8, -s * 0.05 + tailWag * s, -s * 1.1, -s * 0.2 + tailWag * s * 2);
+  // Tail fluke top
+  ctx.bezierCurveTo(-s * 1.3, -s * 0.35 + tailWag * s * 2, -s * 1.4, -s * 0.15 + tailWag * s, -s * 1.1, 0 + tailWag * s * 0.5);
+  // Tail fluke bottom
+  ctx.bezierCurveTo(-s * 1.4, s * 0.15 + tailWag * s, -s * 1.3, s * 0.35 + tailWag * s * 2, -s * 1.1, s * 0.2 + tailWag * s * 2);
+  ctx.bezierCurveTo(-s * 0.8, s * 0.05 + tailWag * s, -s * 0.6, s * 0.15, -s * 0.3, s * 0.25);
+  ctx.bezierCurveTo(s * 0.2, s * 0.45, s * 0.8, s * 0.35, s * 0.9, 0);
+  ctx.closePath();
+
+  // Body fill — gradient from accent to deep
+  const bodyGrad = ctx.createLinearGradient(-s, -s * 0.4, s, s * 0.4);
+  const baseColor = lerpColor('#1a3050', accent, 0.3 + celestial * 0.4);
+  const lightColor = lerpColor('#2a5070', accent, 0.4 + celestial * 0.5);
+  bodyGrad.addColorStop(0, baseColor);
+  bodyGrad.addColorStop(0.5, lightColor);
+  bodyGrad.addColorStop(1, baseColor);
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // Subtle body outline glow
+  ctx.strokeStyle = accent + '40';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Belly lighter area
+  ctx.beginPath();
+  ctx.ellipse(s * 0.1, s * 0.12, s * 0.5, s * 0.15, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(200,220,240,' + (0.08 + celestial * 0.08) + ')';
+  ctx.fill();
+
+  // Eye
+  const eyeX = s * 0.45;
+  const eyeY = -s * 0.12;
+  ctx.beginPath();
+  ctx.arc(eyeX, eyeY, s * 0.06, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(eyeX + s * 0.015, eyeY, s * 0.035, 0, Math.PI * 2);
+  ctx.fillStyle = '#0a1628';
+  ctx.fill();
+  // Eye glow
+  ctx.beginPath();
+  ctx.arc(eyeX, eyeY, s * 0.1, 0, Math.PI * 2);
+  ctx.fillStyle = accent + '15';
+  ctx.fill();
+
+  // Pectoral fin
+  ctx.beginPath();
+  ctx.moveTo(s * 0.15, s * 0.2);
+  ctx.bezierCurveTo(s * 0.1, s * 0.5, -s * 0.15, s * 0.55, -s * 0.25, s * 0.4);
+  ctx.bezierCurveTo(-s * 0.1, s * 0.35, s * 0.0, s * 0.25, s * 0.15, s * 0.2);
+  ctx.fillStyle = lerpColor('#1a3050', accent, 0.2 + celestial * 0.3) + 'cc';
+  ctx.fill();
+
+  // Dorsal ridge (small bumps)
+  for (let i = 0; i < 3; i++) {
+    const bx = s * (0.1 - i * 0.2);
+    ctx.beginPath();
+    ctx.moveTo(bx - s * 0.04, -s * 0.25);
+    ctx.lineTo(bx, -s * 0.32);
+    ctx.lineTo(bx + s * 0.04, -s * 0.25);
+    ctx.fillStyle = lightColor + '80';
+    ctx.fill();
+  }
+
+  // Celestial markings — glowing spots that appear as whale transforms
+  if (celestial > 0.1) {
+    const spots = [
+      [0.3, -0.18, 0.025], [0.0, -0.22, 0.02], [-0.3, -0.2, 0.018],
+      [-0.5, -0.12, 0.015], [0.5, -0.05, 0.02], [-0.7, 0, 0.012],
+      [0.2, 0.15, 0.018], [-0.2, 0.12, 0.015]
+    ];
+    spots.forEach(([sx, sy, sr]) => {
+      const alpha = celestial * (0.3 + Math.sin(gameTime * 2 + sx * 10) * 0.15);
+      ctx.beginPath();
+      ctx.arc(s * sx, s * sy, s * sr * (1 + celestial), 0, Math.PI * 2);
+      ctx.fillStyle = accent + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+      ctx.fill();
+      // Outer glow
+      ctx.beginPath();
+      ctx.arc(s * sx, s * sy, s * sr * 3 * (1 + celestial), 0, Math.PI * 2);
+      ctx.fillStyle = accent + Math.floor(alpha * 0.2 * 255).toString(16).padStart(2, '0');
+      ctx.fill();
+    });
+  }
+
+  ctx.restore();
+}
+
+
+// ═══════════════════════════════════════════
+// FISH — Living Ecosystem
+// ═══════════════════════════════════════════
+const fish = [];
+const MAX_FISH = 60;
+
+const FISH_TYPES = {
+  CURIOUS: 0,   // approaches bubbles
+  FEARFUL: 1,   // scatters dramatically
+  SPIRITUAL: 2  // glows and phases in/out
+};
+
+function createFish(x, y, type) {
+  return {
+    x: x || rand(-100, W + 100),
+    y: y || rand(50, H - 50),
+    vx: rand(-1, 1),
+    vy: rand(-0.3, 0.3),
+    size: rand(4, 10),
+    type: type !== undefined ? type : [FISH_TYPES.CURIOUS, FISH_TYPES.CURIOUS, FISH_TYPES.FEARFUL, FISH_TYPES.FEARFUL, FISH_TYPES.SPIRITUAL][randInt(0, 4)],
+    color: null, // set per frame based on layer
+    phase: rand(0, Math.PI * 2),
+    schoolId: randInt(0, 5),
+    alpha: 1,
+    phaseOffset: rand(0, Math.PI * 2),
+    targetVx: rand(-1, 1),
+    targetVy: rand(-0.3, 0.3),
+    changeTimer: rand(1, 4),
+    fleeing: false,
+    fleeTimer: 0,
+    attracted: false,
+    dissolving: false,
+    dissolveTimer: 0,
+    glowPhase: rand(0, Math.PI * 2),
+    visible: true // for spiritual fish phasing
+  };
+}
+
+function spawnFish() {
+  const layer = LAYERS[currentLayer];
+  const targetCount = Math.floor(MAX_FISH * layer.fishDensity);
+  while (fish.length < targetCount) {
+    const side = randInt(0, 3);
+    let x, y;
+    if (side === 0) { x = -20; y = rand(0, H); }
+    else if (side === 1) { x = W + 20; y = rand(0, H); }
+    else if (side === 2) { x = rand(0, W); y = -20; }
+    else { x = rand(0, W); y = H + 20; }
+
+    let type = FISH_TYPES.CURIOUS;
+    const r = Math.random();
+    if (currentLayer >= 2 && r < 0.3) type = FISH_TYPES.SPIRITUAL;
+    else if (r < 0.4) type = FISH_TYPES.FEARFUL;
+    else if (r < 0.7) type = FISH_TYPES.CURIOUS;
+    else type = FISH_TYPES.FEARFUL;
+
+    fish.push(createFish(x, y, type));
+  }
+}
+
+function updateFish(dt) {
+  spawnFish();
+
+  for (let i = fish.length - 1; i >= 0; i--) {
+    const f = fish[i];
+
+    // Dissolving animation (being absorbed)
+    if (f.dissolving) {
+      f.dissolveTimer += dt;
+      f.alpha = Math.max(0, 1 - f.dissolveTimer * 2);
+      f.size *= 0.97;
+      // Move toward whale
+      const dx = whale.x - f.x;
+      const dy = whale.y - f.y;
+      const d = Math.sqrt(dx * dx + dy * dy) + 1;
+      f.vx += (dx / d) * 8 * dt;
+      f.vy += (dy / d) * 8 * dt;
+      f.x += f.vx;
+      f.y += f.vy;
+      if (f.alpha <= 0) {
+        // Spawn light particles
+        for (let p = 0; p < 6; p++) {
+          particles.push(createParticle(f.x, f.y, 'absorb'));
+        }
+        fish.splice(i, 1);
+        score += 10 + currentLayer * 5;
+        energy = Math.min(100, energy + 8);
+        harmony = Math.max(0, harmony - 3);
+        playAbsorbSound();
+      }
+      continue;
+    }
+
+    // Spiritual fish phase in/out
+    if (f.type === FISH_TYPES.SPIRITUAL) {
+      f.glowPhase += dt * 0.8;
+      f.visible = Math.sin(f.glowPhase) > -0.3;
+      f.alpha = f.visible ? (0.5 + Math.sin(f.glowPhase) * 0.5) : 0;
+    }
+
+    // Schooling behavior — fish of same school tend toward each other
+    let schoolX = 0, schoolY = 0, schoolCount = 0;
+    for (const other of fish) {
+      if (other === f || other.schoolId !== f.schoolId || other.dissolving) continue;
+      const d = dist(f.x, f.y, other.x, other.y);
+      if (d < 150) {
+        schoolX += other.x;
+        schoolY += other.y;
+        schoolCount++;
+        // Separation
+        if (d < 25) {
+          f.vx -= (other.x - f.x) * 0.01;
+          f.vy -= (other.y - f.y) * 0.01;
+        }
+      }
+    }
+    if (schoolCount > 0) {
+      schoolX /= schoolCount;
+      schoolY /= schoolCount;
+      f.vx += (schoolX - f.x) * 0.001;
+      f.vy += (schoolY - f.y) * 0.001;
+    }
+
+    // Behavior based on type
+    const dToWhale = dist(f.x, f.y, whale.x, whale.y);
+
+    if (f.type === FISH_TYPES.FEARFUL && dToWhale < 180) {
+      // Scatter!
+      const fleeAngle = Math.atan2(f.y - whale.y, f.x - whale.x);
+      f.vx += Math.cos(fleeAngle) * 3 * dt;
+      f.vy += Math.sin(fleeAngle) * 3 * dt;
+      f.fleeing = true;
+      f.fleeTimer = 1;
+    }
+
+    if (f.type === FISH_TYPES.CURIOUS) {
+      // Check attraction to bubbles
+      let attracted = false;
+      for (const b of spiralBubbles) {
+        if (dist(f.x, f.y, b.x, b.y) < 120) {
+          f.vx += (b.x - f.x) * 0.003;
+          f.vy += (b.y - f.y) * 0.003;
+          attracted = true;
+        }
+      }
+      f.attracted = attracted;
+    }
+
+    // Fleeing timer
+    if (f.fleeing) {
+      f.fleeTimer -= dt;
+      if (f.fleeTimer <= 0) f.fleeing = false;
+    }
+
+    // Random direction changes
+    f.changeTimer -= dt;
+    if (f.changeTimer <= 0) {
+      f.targetVx = rand(-1.2, 1.2);
+      f.targetVy = rand(-0.5, 0.5);
+      f.changeTimer = rand(2, 5);
+    }
+
+    if (!f.fleeing && !f.attracted) {
+      f.vx += (f.targetVx - f.vx) * 0.02;
+      f.vy += (f.targetVy - f.vy) * 0.02;
+    }
+
+    // Gentle wave motion
+    f.phase += dt * 2;
+    f.vy += Math.sin(f.phase + f.phaseOffset) * 0.02;
+
+    // Speed limit
+    const spd = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
+    const maxSpd = f.fleeing ? 4 : 1.8;
+    if (spd > maxSpd) {
+      f.vx = (f.vx / spd) * maxSpd;
+      f.vy = (f.vy / spd) * maxSpd;
+    }
+
+    f.x += f.vx;
+    f.y += f.vy;
+
+    // Wrap around edges with margin
+    if (f.x < -60) f.x = W + 50;
+    if (f.x > W + 60) f.x = -50;
+    if (f.y < -60) f.y = H + 50;
+    if (f.y > H + 60) f.y = -50;
+
+    // Check if whale can absorb (close enough and moving toward)
+    if (!f.dissolving && dToWhale < whale.size * 1.2 + f.size) {
+      f.dissolving = true;
+      f.dissolveTimer = 0;
+    }
+  }
+
+  // Harmony regenerates slowly
+  harmony = Math.min(100, harmony + dt * 2);
+}
+
+function drawFish() {
+  const layer = LAYERS[currentLayer];
+
+  for (const f of fish) {
+    if (f.alpha <= 0.01) continue;
+
+    ctx.save();
+    ctx.globalAlpha = f.alpha;
+    ctx.translate(f.x, f.y);
+
+    // Face direction of movement
+    const fAngle = Math.atan2(f.vy, f.vx);
+    ctx.rotate(fAngle);
+
+    const s = f.size;
+
+    // Glow for spiritual fish
+    if (f.type === FISH_TYPES.SPIRITUAL) {
+      const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 3);
+      glow.addColorStop(0, layer.accent + '30');
+      glow.addColorStop(1, 'transparent');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Fish body
+    ctx.beginPath();
+    ctx.moveTo(s, 0);
+    ctx.bezierCurveTo(s * 0.5, -s * 0.5, -s * 0.3, -s * 0.4, -s * 0.5, -s * 0.1);
+    ctx.lineTo(-s * 0.9, -s * 0.4); // tail
+    ctx.lineTo(-s * 0.6, 0);
+    ctx.lineTo(-s * 0.9, s * 0.4); // tail
+    ctx.lineTo(-s * 0.5, s * 0.1);
+    ctx.bezierCurveTo(-s * 0.3, s * 0.4, s * 0.5, s * 0.5, s, 0);
+    ctx.closePath();
+
+    let fishColor;
+    if (f.type === FISH_TYPES.SPIRITUAL) {
+      fishColor = layer.accent;
+    } else if (f.type === FISH_TYPES.CURIOUS) {
+      fishColor = lerpColor(layer.accent, '#ffffff', 0.3);
+    } else {
+      fishColor = lerpColor(layer.accent, '#8899aa', 0.4);
+    }
+
+    ctx.fillStyle = fishColor;
+    ctx.fill();
+    ctx.strokeStyle = fishColor + '60';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    // Eye
+    ctx.beginPath();
+    ctx.arc(s * 0.4, -s * 0.08, s * 0.1, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+
+    // Dissolving effect — sparkles
+    if (f.dissolving) {
+      for (let p = 0; p < 3; p++) {
+        const px = rand(-s, s);
+        const py = rand(-s, s);
+        ctx.beginPath();
+        ctx.arc(px, py, rand(1, 3), 0, Math.PI * 2);
+        ctx.fillStyle = layer.accent + Math.floor(rand(100, 200)).toString(16);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
+
+// ═══════════════════════════════════════════
+// SPIRAL BUBBLES — Weaving Magic
+// ═══════════════════════════════════════════
+const spiralBubbles = [];
+let spiralAngle = 0;
+let spiralRadius = 0;
+
+function updateSpirals(dt) {
+  if (isHolding && gameState === STATE.PLAYING) {
+    holdTime += dt;
+    spiralAngle += dt * 6;
+    spiralRadius = Math.min(80, holdTime * 40);
+
+    // Spawn spiral bubbles around whale
+    if (Math.random() < dt * 25) {
+      const bx = whale.x + Math.cos(spiralAngle) * spiralRadius;
+      const by = whale.y + Math.sin(spiralAngle) * spiralRadius;
+      spiralBubbles.push({
+        x: bx,
+        y: by,
+        size: rand(3, 8),
+        alpha: 0.8,
+        vx: Math.cos(spiralAngle) * 0.5,
+        vy: Math.sin(spiralAngle) * 0.5 - rand(0.2, 0.8),
+        life: rand(2, 4),
+        maxLife: 4,
+        shimmer: rand(0, Math.PI * 2)
+      });
+      if (Math.random() < 0.3) playBubbleSound();
+
+      // Energy cost
+      energy -= dt * 5;
+    }
+  } else {
+    spiralRadius *= 0.95;
+    holdTime = 0;
+  }
+
+  // Update existing bubbles
+  for (let i = spiralBubbles.length - 1; i >= 0; i--) {
+    const b = spiralBubbles[i];
+    b.life -= dt;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.vy -= dt * 0.15; // float up slightly
+    b.vx *= 0.99;
+    b.shimmer += dt * 3;
+    b.alpha = Math.max(0, b.life / b.maxLife * 0.8);
+
+    if (b.life <= 0) {
+      spiralBubbles.splice(i, 1);
+    }
+  }
+}
+
+function drawSpirals() {
+  const layer = LAYERS[currentLayer];
+
+  for (const b of spiralBubbles) {
+    ctx.save();
+    ctx.globalAlpha = b.alpha;
+
+    // Shimmer effect — constellations of light
+    const shimmerScale = 1 + Math.sin(b.shimmer) * 0.15;
+    const s = b.size * shimmerScale;
+
+    // Outer glow
+    const glow = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, s * 3);
+    glow.addColorStop(0, layer.accent + '30');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, s * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bubble body
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, s, 0, Math.PI * 2);
+    const bubGrad = ctx.createRadialGradient(b.x - s * 0.3, b.y - s * 0.3, 0, b.x, b.y, s);
+    bubGrad.addColorStop(0, '#ffffff80');
+    bubGrad.addColorStop(0.5, layer.accent + '60');
+    bubGrad.addColorStop(1, layer.accent + '20');
+    ctx.fillStyle = bubGrad;
+    ctx.fill();
+
+    // Highlight
+    ctx.beginPath();
+    ctx.arc(b.x - s * 0.25, b.y - s * 0.25, s * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Draw spiral guide while holding
+  if (isHolding && spiralRadius > 5 && gameState === STATE.PLAYING) {
+    ctx.save();
+    ctx.strokeStyle = layer.accent + '20';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 6; a += 0.1) {
+      const r = (a / (Math.PI * 6)) * spiralRadius;
+      const px = whale.x + Math.cos(spiralAngle + a) * r;
+      const py = whale.y + Math.sin(spiralAngle + a) * r;
+      if (a === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+// PARTICLES — Ambient & Effects
+// ═══════════════════════════════════════════
+const particles = [];
+
+function createParticle(x, y, type) {
+  const layer = LAYERS[currentLayer];
+  if (type === 'absorb') {
+    return {
+      x, y,
+      vx: rand(-2, 2),
+      vy: rand(-2, 2),
+      size: rand(2, 5),
+      alpha: 1,
+      life: rand(0.5, 1.5),
+      maxLife: 1.5,
+      color: layer.accent,
+      type: 'absorb',
+      glow: true
+    };
+  }
+  // Ambient particle
+  return {
+    x: x || rand(0, W),
+    y: y || rand(0, H),
+    vx: rand(-0.2, 0.2),
+    vy: rand(-0.5, -0.1),
+    size: rand(1, 3),
+    alpha: rand(0.1, 0.4),
+    life: rand(3, 10),
+    maxLife: 10,
+    color: layer.accent,
+    type: 'ambient',
+    glow: Math.random() < 0.2,
+    phase: rand(0, Math.PI * 2)
+  };
+}
+
+const ambientParticles = [];
+function ensureAmbientParticles() {
+  const target = 80;
+  while (ambientParticles.length < target) {
+    ambientParticles.push(createParticle(null, null, 'ambient'));
+  }
+}
+
+function updateParticles(dt) {
+  ensureAmbientParticles();
+
+  // Ambient
+  for (let i = ambientParticles.length - 1; i >= 0; i--) {
+    const p = ambientParticles[i];
+    p.phase += dt;
+    p.x += p.vx + Math.sin(p.phase * 0.5) * 0.1;
+    p.y += p.vy;
+    p.alpha = 0.1 + Math.sin(p.phase) * 0.1;
+
+    // React to whale proximity
+    const d = dist(p.x, p.y, whale.x, whale.y);
+    if (d < 150) {
+      const angle = Math.atan2(p.y - whale.y, p.x - whale.x);
+      p.vx += Math.cos(angle) * 0.05;
+      p.vy += Math.sin(angle) * 0.05;
+      p.alpha = Math.min(0.6, p.alpha + 0.1);
+    }
+
+    // Wrap
+    if (p.y < -10) { p.y = H + 10; p.x = rand(0, W); }
+    if (p.x < -10) p.x = W + 10;
+    if (p.x > W + 10) p.x = -10;
+  }
+
+  // Effect particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+    p.alpha = Math.max(0, p.life / p.maxLife);
+    p.size *= 0.99;
+
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+    }
+  }
+}
+
+function drawParticles() {
+  const layer = LAYERS[currentLayer];
+
+  // Ambient particles
+  for (const p of ambientParticles) {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    if (p.glow) {
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 4);
+      g.addColorStop(0, layer.particleColor + '0.3)');
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = layer.particleColor + p.alpha + ')';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Effect particles
+  for (const p of particles) {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    if (p.glow) {
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 3);
+      g.addColorStop(0, p.color + '60');
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+
+// ═══════════════════════════════════════════
+// OCEAN RENDERING — Layers, Light, Currents
+// ═══════════════════════════════════════════
+const lightRays = [];
+function initLightRays() {
+  for (let i = 0; i < 8; i++) {
+    lightRays.push({
+      x: rand(0, W),
+      width: rand(30, 120),
+      alpha: rand(0.01, 0.04),
+      speed: rand(0.1, 0.3),
+      phase: rand(0, Math.PI * 2)
+    });
+  }
+}
+initLightRays();
+
+function drawOceanBackground() {
+  const li = Math.floor(currentLayer);
+  const lf = depth * 4 - li;
+  const nextLi = Math.min(3, li + 1);
+  const layer = LAYERS[li];
+  const nextLayer = LAYERS[nextLi];
+
+  // Sky/water gradient
+  const topColor = lerpColor(layer.waterTop, nextLayer.waterTop, lf);
+  const botColor = lerpColor(layer.waterBot, nextLayer.waterBot, lf);
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, topColor);
+  grad.addColorStop(1, botColor);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Light rays (surface layer only, fading)
+  if (currentLayer === 0 || (currentLayer === 1 && lf < 0.5)) {
+    const rayAlpha = currentLayer === 0 ? 1 : 1 - lf * 2;
+    for (const ray of lightRays) {
+      ray.phase += deltaTime * ray.speed;
+      const rx = ray.x + Math.sin(ray.phase) * 50;
+      const rw = ray.width + Math.sin(ray.phase * 0.7) * 20;
+
+      ctx.save();
+      ctx.globalAlpha = ray.alpha * rayAlpha;
+      const rayGrad = ctx.createLinearGradient(rx, 0, rx, H * 0.8);
+      rayGrad.addColorStop(0, 'rgba(244,208,63,0.15)');
+      rayGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = rayGrad;
+      ctx.beginPath();
+      ctx.moveTo(rx - rw * 0.3, 0);
+      ctx.lineTo(rx + rw * 0.3, 0);
+      ctx.lineTo(rx + rw, H * 0.8);
+      ctx.lineTo(rx - rw, H * 0.8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Deep bioluminescent glow (deeper layers)
+  if (currentLayer >= 2) {
+    const glowAlpha = currentLayer === 2 ? 0.03 + lf * 0.02 : 0.05;
+    for (let i = 0; i < 5; i++) {
+      const gx = W * (0.15 + i * 0.18) + Math.sin(gameTime * 0.3 + i) * 30;
+      const gy = H * (0.3 + i * 0.12) + Math.cos(gameTime * 0.2 + i * 2) * 20;
+      const gSize = 100 + Math.sin(gameTime * 0.5 + i * 3) * 30;
+      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gSize);
+      g.addColorStop(0, layer.accent + Math.floor(glowAlpha * 255).toString(16).padStart(2, '0'));
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(gx, gy, gSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Spirit realm — cosmic effect
+  if (currentLayer >= 3) {
+    // Stars / cosmic dust
+    ctx.save();
+    for (let i = 0; i < 30; i++) {
+      const sx = (i * 137.5 + gameTime * 2) % W;
+      const sy = (i * 89.3 + Math.sin(gameTime * 0.1 + i) * 20) % H;
+      const ss = 1 + Math.sin(gameTime + i * 2) * 0.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, ss, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(240,171,252,' + (0.2 + Math.sin(gameTime * 2 + i) * 0.15) + ')';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+// HUD — Minimal, Atmospheric
+// ═══════════════════════════════════════════
+function updateHUD() {
+  const energyBar = document.getElementById('energyBar');
+  const harmonyBar = document.getElementById('harmonyBar');
+  const depthLabel = document.getElementById('depthLabel');
+
+  energyBar.style.width = energy + '%';
+  harmonyBar.style.width = harmony + '%';
+
+  // Color shift for low energy
+  if (energy < 30) {
+    energyBar.style.background = 'linear-gradient(90deg,#e74c3c,#f39c12)';
+  } else {
+    energyBar.style.background = 'linear-gradient(90deg,#4a9ead,#7ec8e3)';
+  }
+
+  depthLabel.textContent = LAYERS[currentLayer].name;
+
+  // Depth dots
+  document.querySelectorAll('.depth-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === currentLayer);
+  });
+}
+
+// ═══════════════════════════════════════════
+// SCREEN SHAKE
+// ═══════════════════════════════════════════
+function applyScreenShake() {
+  if (shakeIntensity > 0.01) {
+    shakeX = (Math.random() - 0.5) * shakeIntensity * 2;
+    shakeY = (Math.random() - 0.5) * shakeIntensity * 2;
+    shakeIntensity *= 0.92;
+  } else {
+    shakeX = 0;
+    shakeY = 0;
+    shakeIntensity = 0;
+  }
+}
+
+// ═══════════════════════════════════════════
+// GAME STATE MANAGEMENT
+// ═══════════════════════════════════════════
+function startGame() {
+  initAudio();
+  gameState = STATE.PLAYING;
+  score = 0;
+  energy = 100;
+  harmony = 100;
+  depth = 0;
+  currentLayer = 0;
+  gameTime = 0;
+  fish.length = 0;
+  spiralBubbles.length = 0;
+  particles.length = 0;
+  ambientParticles.length = 0;
+
+  initWhale();
+
+  document.getElementById('startScreen').style.opacity = '0';
+  document.getElementById('startScreen').style.pointerEvents = 'none';
+  document.getElementById('gameOverScreen').style.opacity = '0';
+  document.getElementById('gameOverScreen').style.pointerEvents = 'none';
+  document.getElementById('hud').style.opacity = '1';
+  document.getElementById('depthIndicator').style.opacity = '1';
+}
+
+function endGame() {
+  gameState = STATE.GAMEOVER;
+  document.getElementById('finalScore').textContent = score;
+
+  // Dynamic end message based on performance
+  const msg = document.getElementById('goMessage');
+  if (score > 400) msg.textContent = 'You became one with the infinite blue';
+  else if (score > 200) msg.textContent = 'The ocean remembers your song';
+  else if (score > 100) msg.textContent = 'A brief dance in the deep';
+  else msg.textContent = 'The current carries you home';
+
+  setTimeout(() => {
+    document.getElementById('gameOverScreen').style.opacity = '1';
+    document.getElementById('gameOverScreen').style.pointerEvents = 'all';
+    document.getElementById('hud').style.opacity = '0';
+    document.getElementById('depthIndicator').style.opacity = '0';
+  }, 500);
+}
+
+// ═══════════════════════════════════════════
+// MAIN GAME LOOP
+// ═══════════════════════════════════════════
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+
+  if (!lastTime) lastTime = timestamp;
+  deltaTime = Math.min(0.05, (timestamp - lastTime) / 1000);
+  lastTime = timestamp;
+
+  if (gameState === STATE.PLAYING) {
+    gameTime += deltaTime;
+    updateWhale(deltaTime);
+    updateFish(deltaTime);
+    updateSpirals(deltaTime);
+    updateParticles(deltaTime);
+    updateHUD();
+    applyScreenShake();
+  } else if (gameState === STATE.MENU) {
+    gameTime += deltaTime;
+    // Gentle ambient animation on menu
+    updateParticles(deltaTime);
+  }
+
+  // ── RENDER ──
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  drawOceanBackground();
+
+  if (gameState === STATE.PLAYING) {
+    drawParticles();
+    drawSpirals();
+    drawFish();
+    drawWhale();
+
+    // Whale trail (behind everything else, actually draw first next time but ok)
+    ctx.save();
+    for (const t of whale.trail) {
+      ctx.globalAlpha = t.alpha * 0.15;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.size, 0, Math.PI * 2);
+      ctx.fillStyle = LAYERS[currentLayer].accent;
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Vignette
+    const vignette = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.3, W/2, H/2, Math.max(W,H)*0.8);
+    vignette.addColorStop(0, 'transparent');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.4)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+  } else if (gameState === STATE.MENU) {
+    // Ambient particles on menu
+    drawParticles();
+  }
+
+  ctx.restore();
+}
+
+// ── Event Listeners ──
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('startBtn').addEventListener('touchend', e => { e.preventDefault(); startGame(); });
+document.getElementById('restartBtn').addEventListener('click', startGame);
+document.getElementById('restartBtn').addEventListener('touchend', e => { e.preventDefault(); startGame(); });
+
+// Kick off
+ensureAmbientParticles();
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
